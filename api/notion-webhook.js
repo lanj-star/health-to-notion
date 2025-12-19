@@ -1,53 +1,13 @@
-// 导入必要的库
-import { Client } from '@notionhq/client';
+// 导入共享中间件
+import { notion, securityMiddleware } from './middleware.js';
 
-// 初始化Notion客户端，密钥从环境变量读取（Vercel提供）
-const notion = new Client({ auth: process.env.NOTION_TOKEN });
+// 第一个Notion数据库ID（用于原始的webhook数据）
+const databaseId = process.env.NOTION_HEALTH_DATABASE_ID;
 
-// 你的Notion数据库ID
-const databaseId = process.env.NOTION_DATABASE_ID;
-
-// 获取客户端IP地址的辅助函数（支持代理环境）
-function getClientIP(request) {
-  // 优先检查代理头（如果使用了Nginx、Cloudflare等代理）
-  const forwardedFor = request.headers['x-forwarded-for'];
-  if (forwardedFor) {
-    // x-forwarded-for格式通常为：client, proxy1, proxy2
-    return forwardedFor.split(',')[0].trim();
-  }
-  
-  // 检查X-Real-IP头（另一种常用的代理IP头）
-  const realIP = request.headers['x-real-ip'];
-  if (realIP) {
-    return realIP;
-  }
-  
-  // 直接从request获取（适用于没有代理的情况）
-  return request.socket?.remoteAddress || 'Unknown';
-}
-
-export default async function handler(request, response) {
-  // 获取客户端IP地址
-  const clientIP = getClientIP(request);
-  
-  // 记录收到请求
-  console.log(`[${clientIP}] Received request: ${request.method} ${request.url}`);
-  
-  // 1. 只处理POST请求
-  if (request.method !== 'POST') {
-    console.log(`[${clientIP}] Method not allowed: ${request.method}`);
-    return response.status(405).json({ error: 'Method not allowed' });
-  }
-
-  // 2. 🔐 安全验证：检查URL中的令牌
-  const urlToken = request.query.token;
-  if (urlToken !== process.env.SECRET_TOKEN) {
-    console.error(`[${clientIP}] Invalid token received: ${urlToken}`);
-    return response.status(401).json({ error: 'Unauthorized: Invalid token' });
-  }
-
+// 实际的处理函数
+async function handleWebhookRequest(request, response, clientIP) {
   try {
-    // 3. 解析请求数据 - 仅支持example.json中的复杂嵌套格式
+    // 解析请求数据
     const { metadata, body, fitness_detail, sleep_analyais, vitals, daily_summary } = request.body;
     
     // 验证必要的复杂格式结构
@@ -60,7 +20,7 @@ export default async function handler(request, response) {
     const dateStr = metadata.date.split('T')[0]; // 提取YYYY-MM-DD部分
     const pageTitle = `${dateStr}记录`; // 生成标题
 
-    // 4. 调用Notion API创建记录（使用英文属性名）
+    // 调用Notion API创建记录（使用英文属性名）
     const notionResponse = await notion.pages.create({
       parent: { database_id: databaseId },
       properties: {
@@ -176,13 +136,16 @@ export default async function handler(request, response) {
       }
     });
 
-    // 5. 返回成功响应
+    // 返回成功响应
     console.log(`[${clientIP}] Success: Created Notion page with ID ${notionResponse.id}, title: ${pageTitle}`);
     return response.status(200).json({ success: true, id: notionResponse.id, title: pageTitle });
 
   } catch (error) {
-    // 6. 错误处理
+    // 错误处理
     console.error(`[${clientIP}] Error:`, error);
     return response.status(500).json({ error: 'Failed to write to Notion', detail: error.message });
   }
 }
+
+// 使用安全中间件包装处理函数
+export default securityMiddleware(handleWebhookRequest);

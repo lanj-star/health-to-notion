@@ -1,5 +1,6 @@
 import express from 'express';
 import webhookHandler from './api/notion-webhook.js';
+import healthAutoExportHandler from './api/health-auto-export.js';
 import * as dotenv from 'dotenv';
 
 // 本地开发时加载.env.local文件
@@ -12,17 +13,21 @@ const PORT = process.env.PORT || 3000;
 // 解析JSON请求体
 app.use(express.json());
 
-// 设置API路由，与原始设计保持一致
+// 设置API路由
 app.post('/api/notion-webhook', webhookHandler);
+app.post('/api/health-auto-export', healthAutoExportHandler);
 
 // 启动服务器
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
   console.log(`Webhook endpoint: http://localhost:${PORT}/api/notion-webhook`);
+  console.log(`Health Auto Export endpoint: http://localhost:${PORT}/api/health-auto-export`);
   
   // 验证环境变量是否加载成功（仅用于调试）
   console.log('Environment variables loaded:');
   console.log('NOTION_TOKEN:', process.env.NOTION_TOKEN ? '✓' : '✗');
-  console.log('NOTION_DATABASE_ID:', process.env.NOTION_DATABASE_ID ? '✓' : '✗');
+  console.log('NOTION_HEALTH_DATABASE_ID:', process.env.NOTION_HEALTH_DATABASE_ID ? '✓' : '✗');
+  console.log('NOTION_WORKOUT_DATABASE_ID:', process.env.NOTION_WORKOUT_DATABASE_ID ? '✓' : '✗');
   console.log('SECRET_TOKEN:', process.env.SECRET_TOKEN ? '✓' : '✗');
+  console.log('IP_WHITELIST:', process.env.IP_WHITELIST ? '✓' : '✗');
 });
