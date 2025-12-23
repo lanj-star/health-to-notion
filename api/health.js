@@ -217,13 +217,13 @@ async function handleHealthRequest(request, response, clientIP) {
             ? parseFloat(daily_summary.active_energy_kcal)
             : null,
         },
-        "运动分钟数(分钟)": {
+        "锻炼分钟数(分钟)": {
           type: "number",
           number: daily_summary?.exercise_minutes
             ? parseInt(daily_summary.exercise_minutes)
             : null,
         },
-        "站立小时数(小时)": {
+        站立分钟数: {
           type: "number",
           number: daily_summary?.stand_hours
             ? parseInt(daily_summary.stand_hours)

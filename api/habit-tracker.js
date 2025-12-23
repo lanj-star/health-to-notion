@@ -235,20 +235,6 @@ export async function updateWorkoutSummaryRecord(
         },
       }),
 
-      // 运动数据
-      步数: {
-        type: "number",
-        number: dailySummary?.steps || 0,
-      },
-      "运动时长(分钟)": {
-        type: "number",
-        number: dailySummary?.exercise_minutes || 0,
-      },
-      "消耗能量(kcal)": {
-        type: "number",
-        number: dailySummary?.active_energy_kcal || 0,
-      },
-
       // 新增达标情况字段（如果存在）
       ...(dailySummary?.steps_goal_met !== undefined && {
         步数目标达成: {
