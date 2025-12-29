@@ -1,7 +1,5 @@
 import express from "express";
-import workoutHandler from "./api/workout.js";
 import healthHandler from "./api/health.js";
-import sleepHandler from "./api/sleep.js";
 import * as dotenv from "dotenv";
 
 // 本地开发时加载.env.local文件
@@ -16,9 +14,7 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
 // 设置API路由
-app.post("/api/workout", workoutHandler);
 app.post("/api/health", healthHandler);
-app.post("/api/sleep", sleepHandler);
 
 // 启动服务器
 app.listen(PORT, () => {
@@ -34,10 +30,6 @@ app.listen(PORT, () => {
   console.log(
     "NOTION_HEALTH_DATABASE_ID:",
     process.env.NOTION_HEALTH_DATABASE_ID ? "✓" : "✗"
-  );
-  console.log(
-    "NOTION_WORKOUT_DATABASE_ID:",
-    process.env.NOTION_WORKOUT_DATABASE_ID ? "✓" : "✗"
   );
   console.log(
     "NOTION_HABBIT_TRACE_DATABASE_ID:",

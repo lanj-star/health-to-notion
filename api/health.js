@@ -1,10 +1,11 @@
 // 导入共享中间件
-import { notion, securityMiddleware } from "./middleware.js";
-// 导入习惯追踪功能
-import { updateSleepRecord } from "./habit-tracker.js";
+import { notion, securityMiddleware, findRecordByDate } from "./middleware.js";
 
 // 健康数据库ID
 const databaseId = process.env.NOTION_HEALTH_DATABASE_ID;
+
+// 习惯追踪数据库ID
+const habitDatabaseId = process.env.NOTION_HABBIT_TRACE_DATABASE_ID;
 
 // 计算睡眠评分
 function calculateSleepScore(sleepData) {
@@ -142,6 +143,138 @@ function calculateSleepScore(sleepData) {
   };
 }
 
+// 计算运动是否达标
+function calculateExerciseStatus(dailySummary) {
+  if (!dailySummary) {
+    return { isAchieved: null, status: "无数据", breakdown: {} };
+  }
+
+  // 运动目标设置
+  const targets = {
+    steps: 10000, // 步数目标
+    exerciseMinutes: 30, // 锻炼分钟数目标
+    activeEnergy: 300, // 活动能量目标（kcal）
+  };
+
+  // 计算各指标是否达标（达到目标的80%以上为达标）
+  const stepsAchieved = dailySummary.steps
+    ? parseInt(dailySummary.steps) >= targets.steps * 0.8
+    : false;
+  const exerciseMinutesAchieved = dailySummary.exercise_minutes
+    ? parseInt(dailySummary.exercise_minutes) >= targets.exerciseMinutes * 0.8
+    : false;
+  const activeEnergyAchieved = dailySummary.active_energy_kcal
+    ? parseFloat(dailySummary.active_energy_kcal) >= targets.activeEnergy * 0.8
+    : false;
+
+  // 统计达标数量
+  const achievedCount = [
+    stepsAchieved,
+    exerciseMinutesAchieved,
+    activeEnergyAchieved,
+  ].filter(Boolean).length;
+
+  // 整体是否达标（至少两项达标为整体达标）
+  const isAchieved = achievedCount >= 2;
+
+  // 状态描述
+  const status = isAchieved ? "达标" : "未达标";
+
+  return {
+    isAchieved: isAchieved,
+    status: status,
+    breakdown: {
+      steps: {
+        actual: dailySummary.steps ? parseInt(dailySummary.steps) : 0,
+        target: targets.steps,
+        achieved: stepsAchieved,
+      },
+      exerciseMinutes: {
+        actual: dailySummary.exercise_minutes
+          ? parseInt(dailySummary.exercise_minutes)
+          : 0,
+        target: targets.exerciseMinutes,
+        achieved: exerciseMinutesAchieved,
+      },
+      activeEnergy: {
+        actual: dailySummary.active_energy_kcal
+          ? parseFloat(dailySummary.active_energy_kcal)
+          : 0,
+        target: targets.activeEnergy,
+        achieved: activeEnergyAchieved,
+      },
+    },
+  };
+}
+
+// 更新习惯追踪数据库中的记录（同步睡眠评分和运动是否达标）
+async function updateHabitRecord(
+  dateStr,
+  sleepScore,
+  exerciseStatus,
+  clientIP
+) {
+  try {
+    // 检查是否已存在记录
+    const existingRecord = await findRecordByDate(
+      habitDatabaseId,
+      dateStr,
+      clientIP,
+      "habit"
+    );
+
+    // 准备属性
+    const properties = {
+      // 睡眠相关属性
+      睡眠评分: {
+        type: "number",
+        number: sleepScore.score,
+      },
+      睡眠质量评级: {
+        type: "rich_text",
+        rich_text: [{ text: { content: sleepScore.rating } }],
+      },
+      // 运动相关属性
+      运动是否达标: {
+        type: "rich_text",
+        rich_text: [{ text: { content: exerciseStatus.status } }],
+      },
+    };
+
+    if (existingRecord) {
+      // 更新现有记录
+      await notion.pages.update({
+        page_id: existingRecord.id,
+        properties: properties,
+      });
+      console.log(`[${clientIP}] Updated habit record for date: ${dateStr}`);
+    } else {
+      // 创建新记录
+      await notion.pages.create({
+        parent: { database_id: habitDatabaseId },
+        properties: {
+          // 添加默认标题字段，格式为YYYY-mm-dd打卡
+          名称: {
+            type: "title",
+            title: [{ text: { content: `${dateStr}打卡` } }],
+          },
+          Date: {
+            type: "date",
+            date: { start: dateStr },
+          },
+          ...properties,
+        },
+      });
+      console.log(
+        `[${clientIP}] Created new habit record for date: ${dateStr}`
+      );
+    }
+  } catch (error) {
+    console.error(`[${clientIP}] Error updating habit record:`, error);
+    throw error;
+  }
+}
+
 // 实际的处理函数
 async function handleHealthRequest(request, response, clientIP) {
   try {
@@ -169,6 +302,9 @@ async function handleHealthRequest(request, response, clientIP) {
 
     // 计算睡眠评分
     const sleepScore = calculateSleepScore(sleep_analyais);
+
+    // 计算运动是否达标
+    const exerciseStatus = calculateExerciseStatus(daily_summary);
 
     // 调用Notion API创建记录（使用英文属性名）
     const notionResponse = await notion.pages.create({
@@ -358,15 +494,8 @@ async function handleHealthRequest(request, response, clientIP) {
       },
     });
 
-    // 更新习惯追踪数据库
-    try {
-      await updateSleepRecord(dateStr, sleepScore, clientIP);
-    } catch (habitError) {
-      console.error(
-        `[${clientIP}] Warning: Failed to update habit trace database:`,
-        habitError.message
-      );
-    }
+    // 更新习惯追踪数据库 - 同步睡眠评分和运动是否达标
+    await updateHabitRecord(dateStr, sleepScore, exerciseStatus, clientIP);
 
     // 返回成功响应
     console.log(
@@ -377,6 +506,7 @@ async function handleHealthRequest(request, response, clientIP) {
       id: notionResponse.id,
       title: pageTitle,
       sleepScore: sleepScore,
+      exerciseStatus: exerciseStatus,
     });
   } catch (error) {
     // 错误处理
